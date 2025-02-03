@@ -148,13 +148,13 @@ def plot_fit(df_curvecurator: pd.DataFrame, df_doses: pd.DataFrame, cell_line: s
 
     X = from_p_space(X)
 
-    sns.scatterplot(data=df_intensities, x="Dose", y="Intensity")
-    plt.plot(X, Y_single, color="red", label="Single-step fit")
-    plt.plot(X, Y_double, color="green", label="Double-step fit")
+    sns.scatterplot(data=df_intensities, x="Dose", y="Intensity", color="black")
+    plt.plot(X, Y_single, color="gray", linestyle="--", label="Single-step fit")
+    plt.plot(X, Y_double, color="red", label="Two-step fit")
 
     if target_ec50_range is not None:
-        plt.axvline(target_ec50_range[0], color="black", linestyle="--", label="Target EC50 range")
-        plt.axvline(target_ec50_range[1], color="black", linestyle="--")
+        plt.axvline(target_ec50_range[0], color="black", linestyle="-.", label="Target EC50 range")
+        plt.axvline(target_ec50_range[1], color="black", linestyle="-.")
 
     plt.title(title if title is not None else cell_line, fontsize=15)
     plt.xscale("log")
@@ -173,8 +173,12 @@ def plot_fit_type(df_curvecurator: pd.DataFrame, category: str, drug: str, palet
     df_plot.plot.bar(stacked=True, color=[palette[col] for col in df_plot.columns] if palette is not None else None)
 
     # Set size dynamically
-    plt.gcf().set_size_inches(0.2 * len(df_plot) + 2, 5)
+    plt.gcf().set_size_inches(0.4 * len(df_plot) + 2, 5)
 
-    plt.ylabel("Frequency")
-    plt.xlabel("Cancer type")
-    plt.title(f"{drug} - Fit type by {category.replace('_', ' ')}", fontsize=15)
+    plt.xticks(fontsize=15)
+    plt.yticks(fontsize=15)
+    plt.legend(fontsize=15)
+
+    plt.ylabel("Frequency", fontsize=15)
+    plt.xlabel("Cancer type", fontsize=15)
+    plt.title(f"{drug} - Fit type by {category.replace('_', ' ')}", fontsize=20)
