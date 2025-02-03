@@ -90,7 +90,7 @@ def __fit_double_logistic__(df_doses: pd.DataFrame, cc_cell_line: pd.Series):
         "back_ratio": (0, 0.5, 1),
         "slope": (0, 1, 20),
         "pec50_1": (4, 5, 9),
-        "pec50_delta": (1, 3, 8),
+        "pec50_delta": (0, 3, 5),
     }
     param_order = ["front", "mid_ratio", "back_ratio", "slope", "slope", "pec50_1", "pec50_delta"]
 
@@ -164,10 +164,10 @@ def plot_fit(df_curvecurator: pd.DataFrame, df_doses: pd.DataFrame, cell_line: s
     plt.show()
     plt.close()
 
-def plot_fit_type(df_curvecurator: pd.DataFrame, category: str, drug: str = None, palette: dict = None):
-    df_plot = df_curvecurator[[category, "Fit type"]].groupby([category, "Fit type"]).size().unstack().fillna(0)
+def plot_fit_type(df_curvecurator: pd.DataFrame, category: str, drug: str, palette: dict = None):
+    df_plot = df_curvecurator[[category, "Double fit type"]].groupby([category, "Double fit type"]).size().unstack().fillna(0)
     df_plot.sort_values("Both", ascending=False, inplace=True)
-    df_plot.plot.bar(stacked=True, color=[palette[col] for col in df_plot.columns])
+    df_plot.plot.bar(stacked=True, color=[palette[col] for col in df_plot.columns] if palette is not None else None)
 
     # Set size dynamically
     plt.gcf().set_size_inches(0.2 * len(df_plot) + 2, 5)
