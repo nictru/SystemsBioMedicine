@@ -11,7 +11,7 @@ DATA_DIR = "/cmnfs/data/cell_viability/CTRP/v2/curvecurator_per_drug/"
 ANNOTATION_FILE = "/cmnfs/proj/sysbiomed24/model_list_20240110.csv"
 
 def to_p_space(x: np.ndarray):
-    x = np.where(x == 0, 1e-9, x) # Avoid log(0)
+    x = np.where(x == 0, 1e-10, x) # Avoid log(0)
     return -np.log10(x)
 
 def from_p_space(x: np.ndarray):
@@ -149,17 +149,20 @@ def plot_fit(df_curvecurator: pd.DataFrame, df_doses: pd.DataFrame, cell_line: s
     X = from_p_space(X)
 
     sns.scatterplot(data=df_intensities, x="Dose", y="Intensity")
-    plt.plot(X, Y_single, color="red")
-    plt.plot(X, Y_double, color="green")
+    plt.plot(X, Y_single, color="red", label="Single-step fit")
+    plt.plot(X, Y_double, color="green", label="Double-step fit")
 
     if target_ec50_range is not None:
-        plt.axvline(target_ec50_range[0], color="black", linestyle="--")
+        plt.axvline(target_ec50_range[0], color="black", linestyle="--", label="Target EC50 range")
         plt.axvline(target_ec50_range[1], color="black", linestyle="--")
 
     plt.title(title if title is not None else cell_line, fontsize=15)
     plt.xscale("log")
     plt.xlabel("Dose (M)")
     plt.ylabel("Relative intensity")
+
+    plt.legend()
+    sns.despine()
 
     plt.show()
     plt.close()
