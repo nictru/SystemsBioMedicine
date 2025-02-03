@@ -117,10 +117,10 @@ def fit(df_curvecurator: pd.DataFrame, df_doses: pd.DataFrame, target_pec50_rang
 
     target_range_start = target_pec50_range[0]
     target_range_end = target_pec50_range[1]
-    df_curvecurator["double_target_effect_size"] = df_curvecurator.apply(lambda x: __double_logistic__(target_range_start, *x["double_params"]) - __double_logistic__(target_range_end, *x["double_params"]), axis=1)
-    df_curvecurator["double_global_effect_size"] = df_curvecurator.apply(lambda x: __double_logistic__(-np.inf, *x["double_params"]) - __double_logistic__(np.inf, *x["double_params"]), axis=1)
-    df_curvecurator["single_target_effect_size"] = df_curvecurator.apply(lambda x: __single_logistic__(target_range_start, *x["single_params"]) - __single_logistic__(target_range_end, *x["single_params"]), axis=1)
-    df_curvecurator["single_global_effect_size"] = df_curvecurator.apply(lambda x: __single_logistic__(-np.inf, *x["single_params"]) - __single_logistic__(np.inf, *x["single_params"]), axis=1)
+    df_curvecurator["double_target_effect_size"] = df_curvecurator.apply(lambda x: __double_logistic__(target_range_end, *x["double_params"]) - __double_logistic__(target_range_start, *x["double_params"]), axis=1)
+    df_curvecurator["double_global_effect_size"] = df_curvecurator.apply(lambda x: __double_logistic__(np.inf, *x["double_params"]) - __double_logistic__(-np.inf, *x["double_params"]), axis=1)
+    df_curvecurator["single_target_effect_size"] = df_curvecurator.apply(lambda x: __single_logistic__(target_range_end, *x["single_params"]) - __single_logistic__(target_range_start, *x["single_params"]), axis=1)
+    df_curvecurator["single_global_effect_size"] = df_curvecurator.apply(lambda x: __single_logistic__(np.inf, *x["single_params"]) - __single_logistic__(-np.inf, *x["single_params"]), axis=1)
 
     def get_fit_type(row, fit: str):
         target_percentage = row[f"{fit}_target_effect_size"] / row[f"{fit}_global_effect_size"]
@@ -137,7 +137,7 @@ def fit(df_curvecurator: pd.DataFrame, df_doses: pd.DataFrame, target_pec50_rang
 
     return df_curvecurator
 
-def plot_fit(df_curvecurator: pd.DataFrame, df_doses: pd.DataFrame, cell_line: str, target_ec50_range: np.ndarray = None):
+def plot_fit(df_curvecurator: pd.DataFrame, df_doses: pd.DataFrame, cell_line: str, target_ec50_range: np.ndarray = None, title: str = None):
     cc_cell_line = df_curvecurator.T[cell_line]
     X = np.linspace(df_doses["pDose"].min(), df_doses["pDose"].max(), 1000)
     Y_single = __single_logistic__(X, *cc_cell_line["single_params"])
@@ -156,10 +156,13 @@ def plot_fit(df_curvecurator: pd.DataFrame, df_doses: pd.DataFrame, cell_line: s
         plt.axvline(target_ec50_range[0], color="black", linestyle="--")
         plt.axvline(target_ec50_range[1], color="black", linestyle="--")
 
-    plt.title(cell_line)
+    plt.title(title if title is not None else cell_line, fontsize=15)
     plt.xscale("log")
     plt.xlabel("Dose (M)")
     plt.ylabel("Relative intensity")
+
+    plt.show()
+    plt.close()
 
 def plot_fit_type(df_curvecurator: pd.DataFrame, category: str, drug: str = None, palette: dict = None):
     df_plot = df_curvecurator[[category, "Fit type"]].groupby([category, "Fit type"]).size().unstack().fillna(0)
