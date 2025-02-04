@@ -153,8 +153,10 @@ def plot_fit(df_curvecurator: pd.DataFrame, df_doses: pd.DataFrame, cell_line: s
     plt.plot(X, Y_double, color="red", label="Two-step fit")
 
     if target_ec50_range is not None:
-        plt.axvline(target_ec50_range[0], color="black", linestyle="-.", label="Target EC50 range")
-        plt.axvline(target_ec50_range[1], color="black", linestyle="-.")
+        target_ec50 = from_p_space(np.mean(to_p_space(target_ec50_range)))
+        plt.axvline(target_ec50, color="black", linestyle="--", label="Target EC50")
+        plt.axvline(target_ec50_range[0], color="gray", linestyle="-.", label="Target EC50 range")
+        plt.axvline(target_ec50_range[1], color="gray", linestyle="-.")
 
     plt.title(title if title is not None else cell_line, fontsize=15)
     plt.xscale("log")
@@ -173,7 +175,7 @@ def plot_fit_type(df_curvecurator: pd.DataFrame, category: str, drug: str, palet
     df_plot.plot.bar(stacked=True, color=[palette[col] for col in df_plot.columns] if palette is not None else None)
 
     # Set size dynamically
-    plt.gcf().set_size_inches(0.4 * len(df_plot) + 2, 5)
+    plt.gcf().set_size_inches(0.5 * len(df_plot) + 2, 5)
 
     plt.xticks(fontsize=15)
     plt.yticks(fontsize=15)
