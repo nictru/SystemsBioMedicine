@@ -108,10 +108,18 @@ def __fit_double_logistic__(df_doses: pd.DataFrame, cc_cell_line: pd.Series):
 
 def fit(df_curvecurator: pd.DataFrame, df_doses: pd.DataFrame, target_pec50_range: np.ndarray):
     df_curvecurator["single_r2"] = df_curvecurator["Curve R2"]
+    df_curvecurator["single_params"] = df_curvecurator.apply(lambda x: [x["Curve Front"], x["Curve Back"], x["Curve Slope"] * 2, x["pEC50"]], axis=1)
+
     fit_res = df_curvecurator.apply(lambda x: __fit_double_logistic__(df_doses, x), axis=1)
     df_curvecurator["double_r2"] = fit_res.apply(lambda x: x[0])
     df_curvecurator["double_params"] = fit_res.apply(lambda x: x[1])
-    df_curvecurator["single_params"] = df_curvecurator.apply(lambda x: [x["Curve Front"], x["Curve Back"], x["Curve Slope"] * 2, x["pEC50"]], axis=1)
+    df_curvecurator["double_front"] = df_curvecurator["double_params"].map(lambda x: x[0])
+    df_curvecurator["double_plateau"] = df_curvecurator["double_params"].map(lambda x: x[0] * x[1])
+    df_curvecurator["double_back"] = df_curvecurator["double_params"].map(lambda x: x[0] * x[1] * x[2])
+    df_curvecurator["double_pec50_1"] = df_curvecurator["double_params"].map(lambda x: x[5])
+    df_curvecurator["double_pec50_1_stepsize"] = df_curvecurator.apply(lambda x: x["double_front"] - x["double_plateau"], axis=1)
+    df_curvecurator["double_pec50_2"] = df_curvecurator["double_params"].map(lambda x: x[5] + x[6])
+    df_curvecurator["double_pec50_2_stepsize"] = df_curvecurator.apply(lambda x: x["double_plateau"] - x["double_back"], axis=1)
 
     df_curvecurator["sigmoid_diff"] = df_curvecurator["double_r2"] - df_curvecurator["single_r2"]
 
@@ -122,18 +130,37 @@ def fit(df_curvecurator: pd.DataFrame, df_doses: pd.DataFrame, target_pec50_rang
     df_curvecurator["single_target_effect_size"] = df_curvecurator.apply(lambda x: __single_logistic__(target_range_end, *x["single_params"]) - __single_logistic__(target_range_start, *x["single_params"]), axis=1)
     df_curvecurator["single_global_effect_size"] = df_curvecurator.apply(lambda x: __single_logistic__(np.inf, *x["single_params"]) - __single_logistic__(-np.inf, *x["single_params"]), axis=1)
 
-    def get_fit_type(row, fit: str):
-        target_percentage = row[f"{fit}_target_effect_size"] / row[f"{fit}_global_effect_size"]
-        if target_percentage > 0.1:
-            if target_percentage < 0.9:
-                return "Both"
-            else:
-                return "Target"
-        else:
+    df_curvecurator["double_pec50_1_substantial"] = df_curvecurator["double_pec50_1_stepsize"] / df_curvecurator["double_global_effect_size"] > 0.1
+    df_curvecurator["double_pec50_2_substantial"] = df_curvecurator["double_pec50_2_stepsize"] / df_curvecurator["double_global_effect_size"] > 0.1
+
+    df_curvecurator["Effect span"] = df_curvecurator.apply(lambda x: x["single_global_effect_size"] / x["Curve Slope"], axis=1)
+    df_curvecurator["Effect span > 1.5"] = df_curvecurator["Effect span"] > 1.5
+
+    def is_in_range(value, target_range):
+        return target_range[0] <= value <= target_range[1]
+
+    def get_double_fit_type(row: pd.Series):
+        step1_in_range = is_in_range(row["double_pec50_1"], target_pec50_range)
+        step2_in_range = is_in_range(row["double_pec50_2"], target_pec50_range)
+
+        if step1_in_range and step2_in_range:
+            return "Target"
+        if not step1_in_range and not step2_in_range:
             return "Off-target"
 
-    df_curvecurator["Double fit type"] = df_curvecurator.apply(lambda x: get_fit_type(x, "double"), axis=1)
-    df_curvecurator["Single fit type"] = df_curvecurator.apply(lambda x: get_fit_type(x, "single"), axis=1)
+        step1_substantial = row["double_pec50_1_substantial"]
+        step2_substantial = row["double_pec50_2_substantial"]
+
+        if step1_substantial and step2_substantial:
+            return "Both"
+        if step1_substantial:
+            return "Target" if step1_in_range else "Off-target"
+        if step2_substantial:
+            return "Target" if step2_in_range else "Off-target"
+        return "Weird"
+
+    df_curvecurator["Double fit type"] = df_curvecurator.apply(lambda x: get_double_fit_type(x), axis=1)
+    df_curvecurator["Single fit type"] = df_curvecurator["pEC50"].map(lambda x: "Target" if is_in_range(x, target_pec50_range) else "Off-target")
 
     return df_curvecurator
 
@@ -154,7 +181,7 @@ def plot_fit(df_curvecurator: pd.DataFrame, df_doses: pd.DataFrame, cell_line: s
 
     if target_ec50_range is not None:
         target_ec50 = from_p_space(np.mean(to_p_space(target_ec50_range)))
-        plt.axvline(target_ec50, color="black", linestyle="--", label="Target EC50")
+        plt.axvline(target_ec50, color="black", linestyle="-.", label="Target EC50")
         plt.axvline(target_ec50_range[0], color="gray", linestyle="-.", label="Target EC50 range")
         plt.axvline(target_ec50_range[1], color="gray", linestyle="-.")
 
@@ -181,6 +208,8 @@ def plot_fit_type(df_curvecurator: pd.DataFrame, category: str, drug: str, palet
     plt.yticks(fontsize=15)
     plt.legend(fontsize=15)
 
-    plt.ylabel("Frequency", fontsize=15)
+    sns.despine()
+
+    plt.ylabel("Number of cell lines", fontsize=15)
     plt.xlabel("Cancer type", fontsize=15)
     plt.title(f"{drug} - Fit type by {category.replace('_', ' ')}", fontsize=20)
