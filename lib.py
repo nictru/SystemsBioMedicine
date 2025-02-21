@@ -11,13 +11,23 @@ DATA_DIR = "/cmnfs/data/cell_viability/CTRP/v2/curvecurator_per_drug/"
 ANNOTATION_FILE = "/cmnfs/proj/sysbiomed24/model_list_20240110.csv"
 
 def to_p_space(x: np.ndarray):
+    """
+    Convert from dose to pDose
+    """
     x = np.where(x == 0, 1e-10, x) # Avoid log(0)
     return -np.log10(x)
 
 def from_p_space(x: np.ndarray):
+    """
+    Convert from pDose to dose
+    """
     return 10 ** -x
 
 def load_curvecurator(drug_id):
+    """
+    Load the curvecurator data for a given drug.
+    Only keeps the cell lines that are annotated.
+    """
     with open(f"{DATA_DIR}{drug_id}/config.toml", "rb") as f:
         toml = tl.load(f)['Experiment']
 
@@ -32,7 +42,7 @@ def load_curvecurator(drug_id):
     df_doses["Dose"] = df_doses["Dose"] / 1e6 # Convert from µM to M
     df_doses["pDose"] = to_p_space(df_doses["Dose"])
 
-    df_annotation = pd.read_csv("/cmnfs/proj/sysbiomed24/model_list_20240110.csv")
+    df_annotation = pd.read_csv(ANNOTATION_FILE)
     df_annotation = df_annotation[df_annotation["RRID"].notna()]
     df_annotation.index = df_annotation["RRID"]
     index_intersection = df_curvecurator.index.intersection(df_annotation.index)
@@ -42,10 +52,29 @@ def load_curvecurator(drug_id):
 
     return df_curvecurator, df_doses
 
-def __logistic_decay__(x, front, back, slope, ec50):
+def __logistic_decay__(x: np.ndarray, front: float, back: float, slope: float, ec50: float):
+    """
+    Logistic decay function with additional parameters.
+
+    Parameters
+    ----------
+    x: The x-values
+    front: The front of the logistic decay
+    back: The back of the logistic decay
+    slope: The slope of the logistic decay
+    ec50: The ec50 of the logistic decay
+
+    Returns
+    -------
+    np.ndarray: The y-values
+    """
     return (front - back) * sigmoid(slope * (x - ec50))
 
-def __get_actual_parameters__(front, mid_ratio, back_ratio, slope_1, slope_2, pec50_1, pec50_delta):
+def __get_actual_parameters__(front: float, mid_ratio: float, back_ratio: float, slope_1: float, slope_2: float, pec50_1: float, pec50_delta: float):
+    """
+    Get the actual parameters from the relative parameters.
+    """
+
     middle = front * mid_ratio
     back = middle * back_ratio
 
@@ -53,36 +82,50 @@ def __get_actual_parameters__(front, mid_ratio, back_ratio, slope_1, slope_2, pe
 
     return front, middle, back, slope_1, slope_2, pec50_1, pec50_2
 
-# Define the double logistic function (piecewise)
-# mid_ratio and back_ratio are defined relative to front
-# This is to ensure that the function is always decreasing: We can easily set bounds for the optimization by setting the ratios to be between 0 and 1
-# With absolute values it would be harder to ensure that the function is always decreasing
-# Similarly for the pec50, here the delta is even defined in log space (not sure if this changes much)
-def __double_logistic__(x, front, mid_ratio, back_ratio, slope1, slope2, pec50_1, pec50_delta):
+def __double_logistic__(x: np.ndarray, front: float, mid_ratio: float, back_ratio: float, slope1: float, slope2: float, pec50_1: float, pec50_delta: float):
+    """
+    Double logistic function with additional parameters.
+    The relative parameters are used because this way the bounds can be set easily.
+
+    Parameters
+    ----------
+    x: The x-values
+    front: The front of the logistic decay
+    mid_ratio: The ratio of the middle to the front
+    back_ratio: The ratio of the back to the middle
+    slope1: The slope of the first logistic decay
+    slope2: The slope of the second logistic decay
+    pec50_1: The pEC50 of the first logistic decay
+    pec50_delta: The difference in pEC50 between the two logistic decays
+    """
+
     front, middle, back, slope1, slope2, pec50_1, pec50_2 = __get_actual_parameters__(front, mid_ratio, back_ratio, slope1, slope2, pec50_1, pec50_delta)
 
-    # First logistic function (decays from 1 to b)
-    phase1 = __logistic_decay__(x, front, middle, slope1, pec50_1)
-    # Second logistic function (decays from b to 0)
-    phase2 = __logistic_decay__(x, middle, back, slope2, pec50_2)
+    logistic_1 = __logistic_decay__(x, front, middle, slope1, pec50_1)
+    logistic_2 = __logistic_decay__(x, middle, back, slope2, pec50_2)
 
-    # Combine both phases
-    return phase1 + phase2 + back
+    return logistic_1 + logistic_2 + back
 
-def __single_logistic__(x, front, back, slope, ec50):
+def __single_logistic__(x: np.ndarray, front: float, back: float, slope: float, ec50: float):
+    """
+    Single logistic function.
+    Adds an offset to the logistic decay.
+    """
     return __logistic_decay__(x, front, back, slope, ec50) + back
 
 def __fit_double_logistic__(df_doses: pd.DataFrame, cc_cell_line: pd.Series):
-    df_intensitites = df_doses.join(cc_cell_line)
-    df_intensitites = df_intensitites.dropna()
+    """
+    Fit the double logistic function to a single cell line.
+    """
+    df_intensitites = df_doses.join(cc_cell_line) # We need the actual doses as X values
+    df_intensitites = df_intensitites.dropna() # NaN values lead to errors
     df_intensitites.columns = df_doses.columns.tolist() + ["Intensity"]
 
     X = df_intensitites["pDose"].to_numpy()
     Y = df_intensitites["Intensity"].to_numpy()
 
-    MIN = 0
-    INIT = 1
-    MAX = 2
+    # This constraints led to the best results
+    MIN, INIT, MAX = 0, 1, 2
 
     constraints = {
         "front": (0.1, 1, 1.5),
@@ -95,18 +138,21 @@ def __fit_double_logistic__(df_doses: pd.DataFrame, cc_cell_line: pd.Series):
     param_order = ["front", "mid_ratio", "back_ratio", "slope", "slope", "pec50_1", "pec50_delta"]
 
     popt, _ = curve_fit(__double_logistic__, X, Y,
-                        maxfev=int(1e6),
-                        p0=[constraints[param][INIT] for param in param_order],
-                        method='trf',
+                        maxfev=int(1e6), # Sometimes the model does not converge with the default maxfev
+                        p0=[constraints[param][INIT] for param in param_order], # Initial guess
+                        method='trf', # Recommended when using bounds
                         bounds=(
-                            [constraints[param][MIN] for param in param_order],
-                            [constraints[param][MAX] for param in param_order],
+                            [constraints[param][MIN] for param in param_order], # Lower bounds
+                            [constraints[param][MAX] for param in param_order], # Upper bounds
                         ))
     r2 = r2_score(Y, __double_logistic__(X, *popt))
 
     return r2, popt
 
 def fit(df_curvecurator: pd.DataFrame, df_doses: pd.DataFrame, target_pec50_range: np.ndarray):
+    """
+    Fits the double logistic function to all cell lines and calculates metrics.
+    """
     df_curvecurator["single_r2"] = df_curvecurator["Curve R2"]
     df_curvecurator["single_params"] = df_curvecurator.apply(lambda x: [x["Curve Front"], x["Curve Back"], x["Curve Slope"] * 2, x["pEC50"]], axis=1)
 
@@ -136,10 +182,22 @@ def fit(df_curvecurator: pd.DataFrame, df_doses: pd.DataFrame, target_pec50_rang
     df_curvecurator["Effect span"] = df_curvecurator.apply(lambda x: x["single_global_effect_size"] / x["Curve Slope"], axis=1)
     df_curvecurator["Effect span > 1.5"] = df_curvecurator["Effect span"] > 1.5
 
-    def is_in_range(value, target_range):
+    def is_in_range(value: float, target_range: np.ndarray):
         return target_range[0] <= value <= target_range[1]
 
     def get_double_fit_type(row: pd.Series):
+        """
+        Get the type of double fit.
+
+        A pEC50 is called "substantial" if the step size is at least 10% of the global effect size.
+        We can have one or two substantial pEC50s.
+
+        We have the following types:
+        - Target: All substantial pEC50s are in the target range.
+        - Off-target: All substantial pEC50s are off the target range.
+        - Both: One substantial pEC50 is in the target range, the other is off.
+        - Weird: None of the pEC50s are substantial. This should never happen.
+        """
         step1_in_range = is_in_range(row["double_pec50_1"], target_pec50_range)
         step2_in_range = is_in_range(row["double_pec50_2"], target_pec50_range)
 
@@ -165,6 +223,9 @@ def fit(df_curvecurator: pd.DataFrame, df_doses: pd.DataFrame, target_pec50_rang
     return df_curvecurator
 
 def plot_fit(df_curvecurator: pd.DataFrame, df_doses: pd.DataFrame, cell_line: str, target_ec50_range: np.ndarray = None, title: str = None):
+    """
+    Plot the fit of a single cell line.
+    """
     cc_cell_line = df_curvecurator.T[cell_line]
     X = np.linspace(df_doses["pDose"].min(), df_doses["pDose"].max(), 1000)
     Y_single = __single_logistic__(X, *cc_cell_line["single_params"])
@@ -197,6 +258,9 @@ def plot_fit(df_curvecurator: pd.DataFrame, df_doses: pd.DataFrame, cell_line: s
     plt.close()
 
 def plot_fit_type(df_curvecurator: pd.DataFrame, category: str, drug: str, palette: dict = None):
+    """
+    Plot the fit type distribution with respect to a given category.
+    """
     df_plot = df_curvecurator[[category, "Double fit type"]].groupby([category, "Double fit type"]).size().unstack().fillna(0)
     df_plot.sort_values("Both", ascending=False, inplace=True)
     df_plot.plot.bar(stacked=True, color=[palette[col] for col in df_plot.columns] if palette is not None else None)
