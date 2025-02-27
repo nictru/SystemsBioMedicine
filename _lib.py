@@ -263,6 +263,8 @@ def plot_fit_type(df_curvecurator: pd.DataFrame, category: str, drug: str, palet
     """
     df_plot = df_curvecurator[[category, "Double fit type"]].groupby([category, "Double fit type"]).size().unstack().fillna(0)
     df_plot.sort_values("Both", ascending=False, inplace=True)
+    # Reorder columns to match desired order
+    df_plot = df_plot[["Target", "Both", "Off-target"]]
     df_plot.plot.bar(stacked=True, color=[palette[col] for col in df_plot.columns] if palette is not None else None)
 
     # Set size dynamically
@@ -277,3 +279,101 @@ def plot_fit_type(df_curvecurator: pd.DataFrame, category: str, drug: str, palet
     plt.ylabel("Number of cell lines", fontsize=15)
     plt.xlabel("Cancer type", fontsize=15)
     plt.title(f"{drug} - Fit type by {category.replace('_', ' ')}", fontsize=20)
+
+def plot_paired_fit_type(df_curvecurator: pd.DataFrame, category: str, drug: str = None, palette: dict = None):
+    df_grouping = pd.DataFrame(index=df_curvecurator.index)
+    df_grouping["Single"] = df_curvecurator["Single fit type"]
+    df_grouping["Double"] = df_curvecurator["Double fit type"]
+    df_grouping["category"] = df_curvecurator[category]
+
+    df_grouping = df_grouping.melt(id_vars="category", value_vars=["Single", "Double"], var_name="Fit type", value_name="Result")
+
+    df_grouping = (df_grouping.groupby(["category", "Fit type", "Result"])
+        .size()
+        .reset_index(name="Count"))
+
+    df_grouping = df_grouping.pivot_table(
+        index=["category", "Fit type"], 
+        columns="Result", 
+        values="Count", 
+        fill_value=0
+    ).reset_index()
+
+    # Calculate total entries per category and sort
+    df_grouping["Total"] = df_grouping[["Both", "Off-target", "Target"]].sum(axis=1)
+    category_order = (
+        df_grouping.groupby("category")["Both"]
+        .sum()
+        .sort_values(ascending=False)
+        .index
+    )
+    df_grouping["category"] = pd.Categorical(df_grouping["category"], categories=category_order, ordered=True)
+    df_grouping = df_grouping.sort_values("category")
+
+    # Prepare data for plotting
+    categories = df_grouping["category"].unique()
+    fit_types = ["Double", "Single"]
+    results = ["Target", "Both", "Off-target"]  # Changed order here
+
+    # Grouped bar plot settings
+    bar_width = 0.4
+    group_gap = 0.1  # Space between Single and Double bars
+    category_gap = 0.6  # Space between different categories
+    x_positions = []
+
+    # Calculate x positions
+    current_x = 0
+    for _ in categories:
+        for _ in fit_types:
+            x_positions.append(current_x)
+            current_x += bar_width + group_gap
+        current_x += category_gap - group_gap
+
+    # Define consistent colors
+    if palette:
+        colors = palette
+    else:
+        colors = {
+            "Target": "#8da0cb",
+            "Both": "#66c2a5",
+            "Off-target": "#fc8d62"
+        }
+
+    fig, ax = plt.subplots(figsize=(6, 8))
+
+    # Plot bars
+    for i, fit_type in enumerate(fit_types):
+        subset = df_grouping[df_grouping["Fit type"] == fit_type]
+        subset = subset.set_index("category").reindex(categories).fillna(0)
+        bottom = np.zeros(len(x_positions) // len(fit_types))
+
+        for result in results:
+            ax.bar(
+                x_positions[i::len(fit_types)],
+                subset[result],
+                bar_width,
+                color=colors[result],
+                label=result if i == 0 else None,
+                bottom=bottom
+            )
+            bottom += subset[result]
+    
+    # Customization
+    ax.set_xticks([np.mean(x_positions[i:i+len(fit_types)]) for i in range(0, len(x_positions), len(fit_types))])
+    ax.set_xticklabels(categories, rotation=90)
+    ax.set_ylabel("Count")
+    category_pretty = category.capitalize().replace("_", " ")
+    ax.set_xlabel(category_pretty)
+    if drug:
+        ax.set_title(f"{drug}: Fit Type Distribution across {category_pretty}s")
+    else:
+        ax.set_title(f"Fit Type Distribution across {category_pretty}s")
+    ax.legend(title="EC50 Fit Type")
+
+    # Adjust figure width based on number of categories
+    fig.set_size_inches(0.2 * len(categories) + 2, 8)
+
+    # Show plot
+    plt.tight_layout()
+    plt.show()
+    plt.close()
