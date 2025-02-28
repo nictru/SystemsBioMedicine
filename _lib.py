@@ -360,8 +360,8 @@ def plot_paired_fit_type(df_curvecurator: pd.DataFrame, category: str, drug: str
     
     # Customization
     ax.set_xticks([np.mean(x_positions[i:i+len(fit_types)]) for i in range(0, len(x_positions), len(fit_types))])
-    ax.set_xticklabels(categories, rotation=90)
-    ax.set_ylabel("Count")
+    ax.set_xticklabels(categories, rotation=60, ha="right")
+    ax.set_ylabel("Number of cell lines")
     category_pretty = category.capitalize().replace("_", " ")
     ax.set_xlabel(category_pretty)
     if drug:
@@ -371,7 +371,7 @@ def plot_paired_fit_type(df_curvecurator: pd.DataFrame, category: str, drug: str
     ax.legend(title="EC50 Fit Type")
 
     # Adjust figure width based on number of categories
-    fig.set_size_inches(0.2 * len(categories) + 2, 8)
+    fig.set_size_inches(0.2 * len(categories) + 2, 5)
 
     # Show plot
     plt.tight_layout()
